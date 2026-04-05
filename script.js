@@ -26,6 +26,12 @@ const messages = [
   },
 ];
 
+/* Lightweight memory for natural multi-turn conversations */
+const userContext = {
+  name: "",
+  pastQuestions: [],
+};
+
 // Initial assistant message
 appendMessage(
   "ai",
@@ -64,6 +70,63 @@ function startTypingAnimation(element) {
   return function stopTypingAnimation() {
     clearInterval(typingInterval);
   };
+}
+
+/* Utility: remove punctuation around a possible name */
+function cleanName(rawName) {
+  return rawName.replace(/[^a-zA-Z\s'-]/g, "").trim();
+}
+
+/* Utility: detect name phrases like "my name is Maya" or "I'm Alex" */
+function extractNameFromMessage(text) {
+  const patterns = [
+    /my name is\s+([a-zA-Z][a-zA-Z\s'-]{0,30})/i,
+    /i am\s+([a-zA-Z][a-zA-Z\s'-]{0,30})/i,
+    /i'm\s+([a-zA-Z][a-zA-Z\s'-]{0,30})/i,
+    /call me\s+([a-zA-Z][a-zA-Z\s'-]{0,30})/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) {
+      continue;
+    }
+
+    const possibleName = cleanName(match[1]);
+    if (possibleName) {
+      return possibleName;
+    }
+  }
+
+  return "";
+}
+
+/* Utility: update name and question memory from the latest user message */
+function updateUserContext(userMessage) {
+  const detectedName = extractNameFromMessage(userMessage);
+  if (detectedName) {
+    userContext.name = detectedName;
+  }
+
+  userContext.pastQuestions.push(userMessage);
+
+  // Keep only recent questions so requests stay small.
+  if (userContext.pastQuestions.length > 8) {
+    userContext.pastQuestions.shift();
+  }
+}
+
+/* Utility: create a context note the model can use on each turn */
+function buildContextSystemMessage() {
+  const nameText = userContext.name
+    ? `User name: ${userContext.name}.`
+    : "User name: unknown.";
+
+  const questionText = userContext.pastQuestions.length
+    ? `Recent user questions: ${userContext.pastQuestions.join(" | ")}`
+    : "Recent user questions: none yet.";
+
+  return `${nameText}\n${questionText}\nUse this context to respond naturally and consistently.`;
 }
 
 /* Utility: basic off-topic guard before calling the API */
@@ -175,6 +238,9 @@ chatForm.addEventListener("submit", async (e) => {
     content: userMessage,
   });
 
+  // Store lightweight context (name + recent questions) for multi-turn chat.
+  updateUserContext(userMessage);
+
   // Show temporary loading message
   const loadingMessage = appendMessage("ai", "Thinking");
   const stopTypingAnimation = startTypingAnimation(loadingMessage.bubble);
@@ -196,13 +262,22 @@ chatForm.addEventListener("submit", async (e) => {
     }
 
     // Request to your Cloudflare Worker (the Worker calls OpenAI securely).
+    const requestMessages = [
+      messages[0],
+      {
+        role: "system",
+        content: buildContextSystemMessage(),
+      },
+      ...messages.slice(1),
+    ];
+
     const response = await fetch(CLOUDFLARE_WORKER_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        messages: messages,
+        messages: requestMessages,
       }),
     });
 
