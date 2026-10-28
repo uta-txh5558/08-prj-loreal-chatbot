@@ -283,8 +283,9 @@ chatForm.addEventListener("submit", async (e) => {
 
     const data = await response.json();
 
-    if (!response.ok) {
-      const errorMessage = data.error?.message || "Request failed.";
+    if (!response.ok || data.error) {
+      const errorMessage =
+        data.error?.message || `Request failed (${response.status}).`;
       throw new Error(errorMessage);
     }
 
