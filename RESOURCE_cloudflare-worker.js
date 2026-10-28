@@ -33,7 +33,7 @@ export default {
 
     // Store this secret in the Cloudflare Worker settings.
     const apiKey = env.GEMINI_API_KEY;
-    const model = "gemini-2.0-flash";
+    const model = "gemini-3.8-flash";
     const userInput = await request.json();
 
     if (!apiKey) {
